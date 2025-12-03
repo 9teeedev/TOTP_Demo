@@ -1,108 +1,512 @@
 <?php
-    session_start();
-    include 'otphp/lib/otphp.php';
-    include 'Base32.php';
+session_start();
+include 'otphp/lib/otphp.php';
+include 'Base32.php';
 
-    // edit account here
-    $useraccount = "67040249128@udru.ac.th";
-    // edit secret code here
-    $secret = "NODEJSPHP.";
-    
-    $a = new Base32en();
-    $secretcode = $a->base32_encode($secret);
-    $totp = new \OTPHP\TOTP($secretcode);
-    $chl = $totp->provisioning_uri($useraccount); 
-    if($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $user_otp = $_POST['user_otp'];
-        if($totp->verify($user_otp)){
-            $_SESSION['verified'] = true;
-            $_SESSION['msg'] = "Verification successful!";
-        }
-        else {
-            $_SESSION['verified'] = false;
-            $_SESSION['msg'] = "Verification failed!";
-        }
-        $_SESSION['user_otp'] = $user_otp;
+// Editable account metadata
+$useraccount = '67040249128@udru.ac.th';
+$secret = 'NODEJSPHP.';
+
+$a = new Base32en();
+$secretcode = $a->base32_encode($secret);
+$totp = new \OTPHP\TOTP($secretcode);
+$chl = $totp->provisioning_uri($useraccount);
+
+$timeStep = method_exists($totp, 'getPeriod') ? (int) $totp->getPeriod() : 30;
+$secondsIntoWindow = time() % $timeStep;
+$secondsRemaining = $timeStep - $secondsIntoWindow;
+if ($secondsRemaining === 0) {
+    $secondsRemaining = $timeStep;
+}
+
+$verificationMessage = null;
+$verificationState = null;
+$lastUserOtp = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $user_otp = trim($_POST['user_otp'] ?? '');
+    $lastUserOtp = $user_otp;
+
+    if ($totp->verify($user_otp)) {
+        $verificationState = true;
+        $verificationMessage = 'เข้าสู่ระบบสำเร็จ (Verification successful).';
     } else {
-        $user_otp = '';
+        $verificationState = false;
+        $verificationMessage = 'รหัสไม่ถูกต้อง โปรดลองอีกครั้ง (Verification failed).';
     }
 
+    $_SESSION['verified'] = $verificationState;
+    $_SESSION['msg'] = $verificationMessage;
+    $_SESSION['user_otp'] = $lastUserOtp;
+} elseif (isset($_SESSION['msg'])) {
+    $verificationMessage = $_SESSION['msg'];
+    $verificationState = $_SESSION['verified'] ?? null;
+    $lastUserOtp = $_SESSION['user_otp'] ?? '';
+}
+
+unset($_SESSION['msg'], $_SESSION['verified'], $_SESSION['user_otp']);
+
+$currentOtpRaw = $totp->now();
+$currentOtpSplit = trim(chunk_split($currentOtpRaw, 3, ' '));
+$manualSecret = trim(chunk_split(strtoupper($secretcode), 4, ' '));
+$qrData = rawurlencode($chl);
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="th">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OTP Demo</title>
-</head>
-<style>
-    body {
-        font-family: Arial, sans-serif;
-        margin: 50px auto;
-        max-width: 600px;
-        text-align: center;
-    }
-    h1 {
-        color: #333;
-    }
-    form {
-        margin-bottom: 20px;
-    }
-    label {
-        margin-right: 10px;
-    }
-    input[type="text"] {
-        padding: 5px;
-        font-size: 16px;
-    }
-    input[type="submit"] {
-        padding: 5px 10px;
-        font-size: 16px;
-        cursor: pointer;
-    }
-</style>
-<body>
-    <h1>OTP Verification</h1>
-    <form action="" method="post">
-        <label for="otp">Enter OTP:</label>
-        <input type="text" id="otp" name="user_otp" required>
-        <input type="submit" value="Verify OTP">
-    </form>
-    <?php
-        if (isset($_SESSION['msg'])) {
-            echo "<p id='user-otp'>" . $_SESSION['user_otp'] . "</p>";
-            if($_SESSION['verified']) {
-                echo "<p style='color: green;' id='msg'>" . $_SESSION['msg'] . "</p>";
-            } else {
-                echo "<p style='color: red;' id='msg'>" . $_SESSION['msg'] . "</p>";
-            }
-            unset($_SESSION['msg']);
+    <title>Professional OTP Demo</title>
+    <style>
+        :root {
+            --bg: #edf2ff;
+            --card-bg: #ffffff;
+            --stroke: #e4e7ec;
+            --text: #0f172a;
+            --subtext: #475467;
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #16a34a;
+            --error: #dc2626;
+            --shadow: 0 25px 60px rgba(15, 23, 42, 0.12);
         }
-    ?>
-    
-    <br>
-    <!-- <img src='https://www.google.com/chart?chs=250x250&chld=M|0&cht=qr&chl=<?php //echo $chl; ?>'> -->
-    <img src=' https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=<?php echo $chl; ?>'>
 
-    <?php
-        echo "<br><h2 id='otp'>OTP ===> ". $totp->now(). "</h2>";
-    ?>
-</body>
-<script>
-    setInterval(function(){
-        location.reload();
-    }, 30000);
-    // unset message after 10 seconds
-    setTimeout(function() {
-        const msgElement = document.getElementById('msg');
-        const userOtpElement = document.getElementById('user-otp');
-        if (msgElement) {
-            msgElement.style.display = 'none';
-            userOtpElement.style.display = 'none';
+        * {
+            box-sizing: border-box;
         }
-    }, 10000);
-</script>
-    
-</script>
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: 'Segoe UI', 'Prompt', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            background: radial-gradient(circle at top, #dbeafe, #eff6ff 45%, #f8fafc 80%);
+            color: var(--text);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 32px;
+        }
+
+        .app-wrapper {
+            width: min(1160px, 100%);
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        header {
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .eyebrow {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: clamp(28px, 4vw, 40px);
+            font-weight: 600;
+        }
+
+        header p {
+            margin: 0;
+            color: var(--subtext);
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 28px;
+            padding: clamp(24px, 4vw, 36px);
+            box-shadow: var(--shadow);
+        }
+
+        .verification-card form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        label {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .otp-input {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .otp-input input {
+            flex: 1 1 220px;
+            padding: 20px;
+            border-radius: 18px;
+            border: 1px solid var(--stroke);
+            font-size: 26px;
+            letter-spacing: 0.32em;
+            text-align: center;
+            font-weight: 600;
+            color: var(--text);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .otp-input input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+        }
+
+        .primary-btn {
+            flex: 0 0 auto;
+            padding: 0 28px;
+            border: none;
+            border-radius: 16px;
+            background: var(--primary);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.2s ease;
+            min-height: 60px;
+        }
+
+        .primary-btn:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .helper {
+            color: var(--subtext);
+            font-size: 14px;
+        }
+
+        .status-banner {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 16px 20px;
+            border-radius: 18px;
+            border: 1px solid transparent;
+            margin-top: 4px;
+            position: relative;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        .status-banner.hidden {
+            opacity: 0;
+            transform: translateY(-8px);
+            pointer-events: none;
+        }
+
+        .status-banner .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-top: 6px;
+        }
+
+        .status-banner strong {
+            display: block;
+        }
+
+        .status-meta {
+            margin: 4px 0 0;
+            font-size: 13px;
+            color: var(--subtext);
+        }
+
+        .status-success {
+            background: #ecfdf3;
+            border-color: #bbf7d0;
+            color: var(--success);
+        }
+
+        .status-success .status-dot {
+            background: var(--success);
+        }
+
+        .status-error {
+            background: #fef2f2;
+            border-color: #fecaca;
+            color: var(--error);
+        }
+
+        .status-error .status-dot {
+            background: var(--error);
+        }
+
+        .dismiss {
+            position: absolute;
+            top: 12px;
+            right: 14px;
+            border: none;
+            background: transparent;
+            color: inherit;
+            font-size: 20px;
+            cursor: pointer;
+            line-height: 1;
+        }
+
+        .info-grid {
+            margin-top: 28px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 18px;
+        }
+
+        .info-tile {
+            border: 1px solid var(--stroke);
+            border-radius: 20px;
+            padding: 18px 20px;
+            background: #f8fafc;
+        }
+
+        .info-tile .label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--subtext);
+            margin-bottom: 8px;
+        }
+
+        .otp-display {
+            font-size: 32px;
+            font-weight: 700;
+            letter-spacing: 0.28em;
+            text-align: center;
+        }
+
+        .countdown {
+            font-size: 42px;
+            font-weight: 600;
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+        }
+
+        .countdown .unit {
+            font-size: 14px;
+            color: var(--subtext);
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            border-radius: 999px;
+            background: #e2e8f0;
+            margin-top: 12px;
+            overflow: hidden;
+        }
+
+        .progress-bar span {
+            display: block;
+            height: 100%;
+            width: 0;
+            background: linear-gradient(90deg, var(--primary), #60a5fa);
+            transition: width 1s linear;
+        }
+
+        .qr-card {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .qr-wrapper {
+            background: #f1f5f9;
+            border-radius: 24px;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .qr-wrapper img {
+            width: 220px;
+            height: 220px;
+        }
+
+        .qr-steps {
+            margin: 0;
+            padding-left: 20px;
+            color: var(--subtext);
+            line-height: 1.8;
+        }
+
+        .secret-chip {
+            margin-top: 8px;
+            padding: 12px 16px;
+            border-radius: 14px;
+            background: #101828;
+            color: #f8fafc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-family: 'JetBrains Mono', 'Fira Code', monospace;
+            font-size: 14px;
+            letter-spacing: 0.12em;
+        }
+
+        .secret-chip span {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.32em;
+            color: #94a3b8;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 18px;
+            }
+
+            .otp-input {
+                flex-direction: column;
+            }
+
+            .otp-input input {
+                font-size: 22px;
+                letter-spacing: 0.2em;
+            }
+
+            .primary-btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body data-period="<?php echo (int) $timeStep; ?>" data-remaining="<?php echo (int) $secondsRemaining; ?>">
+    <div class="app-wrapper">
+        <header>
+            <span class="eyebrow">Secure Access Center</span>
+            <h1>ยืนยันตัวตนด้วย One-Time Passcode</h1>
+            <p>ป้อนรหัส 6 หลักจากแอป Authenticator เพื่อเข้าสู่ระบบอย่างปลอดภัย</p>
+        </header>
+
+        <div class="content-grid">
+            <section class="card verification-card">
+                <form action="" method="post" autocomplete="off">
+                    <div>
+                        <label for="otp">One-Time Code</label>
+                        <div class="otp-input">
+                            <input type="text" id="otp" name="user_otp" required maxlength="6" minlength="6" pattern="\d{6}" inputmode="numeric" autocomplete="one-time-code" value="<?php echo htmlspecialchars($lastUserOtp, ENT_QUOTES); ?>" placeholder="••••••">
+                            <button type="submit" class="primary-btn">Verify Code</button>
+                        </div>
+                        <p class="helper">รหัสจะเปลี่ยนใหม่ทุก 30 วินาที</p>
+                    </div>
+
+                    <?php if ($verificationMessage !== null): ?>
+                        <div class="status-banner <?php echo $verificationState ? 'status-success' : 'status-error'; ?>" id="status-banner" role="status" aria-live="polite">
+                            <span class="status-dot"></span>
+                            <div>
+                                <strong><?php echo htmlspecialchars($verificationMessage); ?></strong>
+                                <?php if ($lastUserOtp !== ''): ?>
+                                    <p class="status-meta">รหัสที่กรอก: <span><?php echo htmlspecialchars($lastUserOtp); ?></span></p>
+                                <?php endif; ?>
+                            </div>
+                            <button type="button" class="dismiss" id="dismiss-status" aria-label="Close notification">&times;</button>
+                        </div>
+                    <?php endif; ?>
+                </form>
+
+                <div class="info-grid">
+                    <div class="info-tile">
+                        <p class="label">Current OTP</p>
+                        <p class="otp-display" id="otp-value"><?php echo htmlspecialchars($currentOtpSplit); ?></p>
+                        <p class="helper">แสดงเพื่อการทดสอบเท่านั้น</p>
+                    </div>
+                    <div class="info-tile">
+                        <p class="label">Next refresh</p>
+                        <div class="countdown">
+                            <span id="timer-value"><?php echo (int) $secondsRemaining; ?></span>
+                            <span class="unit">secs</span>
+                        </div>
+                        <div class="progress-bar">
+                            <span id="timer-progress" style="width: <?php echo (($timeStep - $secondsRemaining) / $timeStep) * 100; ?>%"></span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <aside class="card qr-card">
+                <span class="eyebrow">Authenticator setup</span>
+                <h2>ตั้งค่าบนมือถือของคุณ</h2>
+                <p class="helper">สแกน QR หรือป้อน secret ด้านล่างเพื่อเชื่อมต่อกับแอป TOTP ที่คุณใช้งาน</p>
+
+                <div class="qr-wrapper">
+                    <img src="https://api.qrserver.com/v1/create-qr-code/?size=220x220&amp;data=<?php echo $qrData; ?>" alt="QR code for authenticator provisioning">
+                </div>
+
+                <ol class="qr-steps">
+                    <li>เปิด Google Authenticator, Microsoft Authenticator หรือแอป TOTP ใด ๆ</li>
+                    <li>เลือกเพิ่มบัญชีใหม่แล้วสแกน QR Code ด้านบน</li>
+                    <li>กรอกรหัส 6 หลักที่ได้กลับมายังหน้าจอนี้เพื่อยืนยัน</li>
+                </ol>
+
+                <div class="secret-chip">
+                    <span>Secret</span>
+                    <code><?php echo htmlspecialchars($manualSecret); ?></code>
+                </div>
+            </aside>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            const body = document.body;
+            const cycleSeconds = Number(body.dataset.period) || 30;
+            let remaining = Number(body.dataset.remaining) || cycleSeconds;
+            const timerValue = document.getElementById('timer-value');
+            const progressBar = document.getElementById('timer-progress');
+            const statusBanner = document.getElementById('status-banner');
+            const dismissBtn = document.getElementById('dismiss-status');
+
+            const updateVisuals = () => {
+                if (timerValue) {
+                    timerValue.textContent = String(remaining).padStart(2, '0');
+                }
+                if (progressBar) {
+                    const percent = ((cycleSeconds - remaining) / cycleSeconds) * 100;
+                    progressBar.style.width = percent + '%';
+                }
+            };
+
+            updateVisuals();
+
+            const countdownInterval = setInterval(() => {
+                remaining -= 1;
+                if (remaining <= 0) {
+                    remaining = cycleSeconds;
+                }
+                updateVisuals();
+            }, 1000);
+
+            setTimeout(() => {
+                clearInterval(countdownInterval);
+                window.location.reload();
+            }, Math.max(remaining, 1) * 1000 + 150);
+
+            if (dismissBtn && statusBanner) {
+                dismissBtn.addEventListener('click', () => {
+                    statusBanner.classList.add('hidden');
+                });
+                setTimeout(() => statusBanner.classList.add('hidden'), 10000);
+            }
+        })();
+    </script>
+</body>
 </html>
 
