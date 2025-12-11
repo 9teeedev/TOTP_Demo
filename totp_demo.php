@@ -46,6 +46,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 unset($_SESSION['msg'], $_SESSION['verified'], $_SESSION['user_otp']);
 
+$showSetup = $_SERVER['REQUEST_METHOD'] !== 'POST';
+
 $currentOtpRaw = $totp->now();
 $currentOtpSplit = trim(chunk_split($currentOtpRaw, 3, ' '));
 $manualSecret = trim(chunk_split(strtoupper($secretcode), 4, ' '));
@@ -397,52 +399,9 @@ $qrData = rawurlencode($chl);
         </header>
 
         <div class="content-grid">
-            <section class="card verification-card">
-                <form action="" method="post" autocomplete="off">
-                    <div>
-                        <label for="otp">One-Time Code</label>
-                        <div class="otp-input">
-                            <input type="text" id="otp" name="user_otp" required maxlength="6" minlength="6" pattern="\d{6}" inputmode="numeric" autocomplete="one-time-code" value="<?php echo htmlspecialchars($lastUserOtp, ENT_QUOTES); ?>" placeholder="••••••">
-                            <button type="submit" class="primary-btn">Verify Code</button>
-                        </div>
-                        <p class="helper">รหัสจะเปลี่ยนใหม่ทุก 30 วินาที</p>
-                    </div>
-
-                    <?php if ($verificationMessage !== null): ?>
-                        <div class="status-banner <?php echo $verificationState ? 'status-success' : 'status-error'; ?>" id="status-banner" role="status" aria-live="polite">
-                            <span class="status-dot"></span>
-                            <div>
-                                <strong><?php echo htmlspecialchars($verificationMessage); ?></strong>
-                                <?php if ($lastUserOtp !== ''): ?>
-                                    <p class="status-meta">รหัสที่กรอก: <span><?php echo htmlspecialchars($lastUserOtp); ?></span></p>
-                                <?php endif; ?>
-                            </div>
-                            <button type="button" class="dismiss" id="dismiss-status" aria-label="Close notification">&times;</button>
-                        </div>
-                    <?php endif; ?>
-                </form>
-
-                <div class="info-grid">
-                    <div class="info-tile">
-                        <p class="label">Current OTP</p>
-                        <p class="otp-display" id="otp-value"><?php echo htmlspecialchars($currentOtpSplit); ?></p>
-                        <p class="helper">แสดงเพื่อการทดสอบเท่านั้น</p>
-                    </div>
-                    <div class="info-tile">
-                        <p class="label">Next refresh</p>
-                        <div class="countdown">
-                            <span id="timer-value"><?php echo (int) $secondsRemaining; ?></span>
-                            <span class="unit">secs</span>
-                        </div>
-                        <div class="progress-bar">
-                            <span id="timer-progress" style="width: <?php echo (($timeStep - $secondsRemaining) / $timeStep) * 100; ?>%"></span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <aside class="card qr-card">
-                <span class="eyebrow">Authenticator setup</span>
+            <!-- Setup Section -->
+            <section class="card qr-card" id="setup-section" style="<?php echo $showSetup ? '' : 'display:none;'; ?>">
+                <span class="eyebrow">Step 1: Setup</span>
                 <h2>ตั้งค่าบนมือถือของคุณ</h2>
                 <p class="helper">สแกน QR หรือป้อน secret ด้านล่างเพื่อเชื่อมต่อกับแอป TOTP ที่คุณใช้งาน</p>
 
@@ -453,51 +412,67 @@ $qrData = rawurlencode($chl);
                 <ol class="qr-steps">
                     <li>เปิด Google Authenticator, Microsoft Authenticator หรือแอป TOTP ใด ๆ</li>
                     <li>เลือกเพิ่มบัญชีใหม่แล้วสแกน QR Code ด้านบน</li>
-                    <li>กรอกรหัส 6 หลักที่ได้กลับมายังหน้าจอนี้เพื่อยืนยัน</li>
+                    <li>เมื่อสแกนเรียบร้อยแล้ว กดปุ่ม "ถัดไป" ด้านล่าง</li>
                 </ol>
 
                 <div class="secret-chip">
                     <span>Secret</span>
                     <code><?php echo htmlspecialchars($manualSecret); ?></code>
                 </div>
-            </aside>
+
+                <div style="margin-top: 24px; text-align: center;">
+                    <button type="button" class="primary-btn" onclick="showVerifyStep()" style="width: 100%;">ฉันสแกนเรียบร้อยแล้ว (Next)</button>
+                </div>
+            </section>
+
+            <!-- Verify Section -->
+            <section class="card verification-card" id="verify-section" style="<?php echo $showSetup ? 'display:none;' : ''; ?>">
+                <span class="eyebrow">Step 2: Verify</span>
+                <h2>ยืนยันรหัส OTP</h2>
+                <p class="helper" style="margin-bottom: 24px;">กรอกรหัส 6 หลักที่ปรากฏบนแอปพลิเคชันของคุณ</p>
+                
+                <form action="" method="post" autocomplete="off">
+                    <div>
+                        <label for="otp">One-Time Code</label>
+                        <div class="otp-input">
+                            <input type="text" id="otp" name="user_otp" required maxlength="6" minlength="6" pattern="\d{6}" inputmode="numeric" autocomplete="one-time-code" value="<?php echo htmlspecialchars($lastUserOtp, ENT_QUOTES); ?>" placeholder="••••••" autofocus>
+                            <button type="submit" class="primary-btn">Verify Code</button>
+                        </div>
+                    </div>
+
+                    <?php if ($verificationMessage !== null): ?>
+                        <div class="status-banner <?php echo $verificationState ? 'status-success' : 'status-error'; ?>" id="status-banner" role="status" aria-live="polite">
+                            <span class="status-dot"></span>
+                            <div>
+                                <strong><?php echo htmlspecialchars($verificationMessage); ?></strong>
+                            </div>
+                            <button type="button" class="dismiss" id="dismiss-status" aria-label="Close notification">&times;</button>
+                        </div>
+                    <?php endif; ?>
+                </form>
+                
+                <div style="margin-top: 24px; text-align: center;">
+                    <button type="button" style="background:none; border:none; color: var(--subtext); cursor: pointer; text-decoration: underline;" onclick="showSetupStep()">ย้อนกลับไปหน้าสแกน QR Code</button>
+                </div>
+            </section>
         </div>
     </div>
 
     <script>
+        function showVerifyStep() {
+            document.getElementById('setup-section').style.display = 'none';
+            document.getElementById('verify-section').style.display = 'block';
+            document.getElementById('otp').focus();
+        }
+
+        function showSetupStep() {
+            document.getElementById('verify-section').style.display = 'none';
+            document.getElementById('setup-section').style.display = 'block';
+        }
+
         (function () {
-            const body = document.body;
-            const cycleSeconds = Number(body.dataset.period) || 30;
-            let remaining = Number(body.dataset.remaining) || cycleSeconds;
-            const timerValue = document.getElementById('timer-value');
-            const progressBar = document.getElementById('timer-progress');
             const statusBanner = document.getElementById('status-banner');
             const dismissBtn = document.getElementById('dismiss-status');
-
-            const updateVisuals = () => {
-                if (timerValue) {
-                    timerValue.textContent = String(remaining).padStart(2, '0');
-                }
-                if (progressBar) {
-                    const percent = ((cycleSeconds - remaining) / cycleSeconds) * 100;
-                    progressBar.style.width = percent + '%';
-                }
-            };
-
-            updateVisuals();
-
-            const countdownInterval = setInterval(() => {
-                remaining -= 1;
-                if (remaining <= 0) {
-                    remaining = cycleSeconds;
-                }
-                updateVisuals();
-            }, 1000);
-
-            setTimeout(() => {
-                clearInterval(countdownInterval);
-                window.location.reload();
-            }, Math.max(remaining, 1) * 1000 + 150);
 
             if (dismissBtn && statusBanner) {
                 dismissBtn.addEventListener('click', () => {
